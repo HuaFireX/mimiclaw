@@ -22,7 +22,7 @@ esp_err_t session_mgr_init(void)
     return ESP_OK;
 }
 
-esp_err_t session_append(const char *chat_id, const char *role, const char *content)
+esp_err_t session_append_json(const char *chat_id, const char *role, const cJSON *content)
 {
     char path[64];
     session_path(chat_id, path, sizeof(path));
@@ -35,7 +35,11 @@ esp_err_t session_append(const char *chat_id, const char *role, const char *cont
 
     cJSON *obj = cJSON_CreateObject();
     cJSON_AddStringToObject(obj, "role", role);
-    cJSON_AddStringToObject(obj, "content", content);
+    if (cJSON_IsString(content)) {
+        cJSON_AddStringToObject(obj, "content", content->valuestring);
+    } else {
+        cJSON_AddItemToObject(obj, "content", cJSON_Duplicate(content, 1));
+    }
     cJSON_AddNumberToObject(obj, "ts", (double)time(NULL));
 
     char *line = cJSON_PrintUnformatted(obj);
@@ -48,6 +52,14 @@ esp_err_t session_append(const char *chat_id, const char *role, const char *cont
 
     fclose(f);
     return ESP_OK;
+}
+
+esp_err_t session_append(const char *chat_id, const char *role, const char *content)
+{
+    cJSON *c = cJSON_CreateString(content);
+    esp_err_t ret = session_append_json(chat_id, role, c);
+    cJSON_Delete(c);
+    return ret;
 }
 
 esp_err_t session_get_history_json(const char *chat_id, char *buf, size_t size, int max_msgs)
@@ -67,15 +79,28 @@ esp_err_t session_get_history_json(const char *chat_id, char *buf, size_t size, 
     int count = 0;
     int write_idx = 0;
 
-    char line[2048];
-    while (fgets(line, sizeof(line), f)) {
+    /* Buffer must be large enough to hold one full message JSON line.
+     * MIMI_TG_MAX_MSG_LEN is 4096, plus role and timestamp metadata.
+     * We use 8KB to be safe. */
+    const size_t line_buf_size = 8192;
+    char *line = malloc(line_buf_size);
+    if (!line) {
+        fclose(f);
+        snprintf(buf, size, "[]");
+        return ESP_ERR_NO_MEM;
+    }
+
+    while (fgets(line, line_buf_size, f)) {
         /* Strip newline */
         size_t len = strlen(line);
         if (len > 0 && line[len - 1] == '\n') line[len - 1] = '\0';
         if (line[0] == '\0') continue;
 
         cJSON *obj = cJSON_Parse(line);
-        if (!obj) continue;
+        if (!obj) {
+            ESP_LOGW(TAG, "Failed to parse session line (truncated?)");
+            continue;
+        }
 
         /* Ring buffer: overwrite oldest if full */
         if (count >= max_msgs) {
@@ -86,6 +111,7 @@ esp_err_t session_get_history_json(const char *chat_id, char *buf, size_t size, 
         if (count < max_msgs) count++;
     }
     fclose(f);
+    free(line);
 
     /* Build JSON array with only role + content */
     cJSON *arr = cJSON_CreateArray();
@@ -97,9 +123,17 @@ esp_err_t session_get_history_json(const char *chat_id, char *buf, size_t size, 
         cJSON *entry = cJSON_CreateObject();
         cJSON *role = cJSON_GetObjectItem(src, "role");
         cJSON *content = cJSON_GetObjectItem(src, "content");
-        if (role && content) {
+        if (cJSON_IsString(role) && content) {
             cJSON_AddStringToObject(entry, "role", role->valuestring);
-            cJSON_AddStringToObject(entry, "content", content->valuestring);
+            if (cJSON_IsString(content)) {
+                cJSON_AddStringToObject(entry, "content", content->valuestring);
+            } else {
+                cJSON_AddItemToObject(entry, "content", cJSON_Duplicate(content, 1));
+            }
+        } else {
+            /* Fallback or skip */
+            cJSON_AddStringToObject(entry, "role", cJSON_IsString(role) ? role->valuestring : "unknown");
+            cJSON_AddStringToObject(entry, "content", cJSON_IsString(content) ? content->valuestring : "");
         }
         cJSON_AddItemToArray(arr, entry);
     }

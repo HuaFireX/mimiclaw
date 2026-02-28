@@ -209,6 +209,9 @@ static void agent_loop_task(void *arg)
         cJSON_AddStringToObject(user_msg, "role", "user");
         cJSON_AddStringToObject(user_msg, "content", msg.content);
         cJSON_AddItemToArray(messages, user_msg);
+        
+        /* Save user turn to session history immediately */
+        session_append(msg.chat_id, "user", msg.content);
 
         /* 4. ReAct loop */
         char *final_text = NULL;
@@ -251,20 +254,43 @@ static void agent_loop_task(void *arg)
                 break;
             }
 
+            /* Scheme B: Send intermediate text feedback immediately if available */
+            if (resp.text && resp.text_len > 0 && strcmp(msg.channel, MIMI_CHAN_SYSTEM) != 0) {
+                mimi_msg_t intermediate = {0};
+                strncpy(intermediate.channel, msg.channel, sizeof(intermediate.channel) - 1);
+                strncpy(intermediate.chat_id, msg.chat_id, sizeof(intermediate.chat_id) - 1);
+                intermediate.content = strdup(resp.text);
+                if (intermediate.content) {
+                    if (message_bus_push_outbound(&intermediate) != ESP_OK) {
+                        ESP_LOGW(TAG, "Outbound queue full, drop intermediate feedback");
+                        free(intermediate.content);
+                    }
+                }
+            }
+
             ESP_LOGI(TAG, "Tool use iteration %d: %d calls", iteration + 1, resp.call_count);
 
             /* Append assistant message with content array */
+            cJSON *asst_content = build_assistant_content(&resp);
             cJSON *asst_msg = cJSON_CreateObject();
             cJSON_AddStringToObject(asst_msg, "role", "assistant");
-            cJSON_AddItemToObject(asst_msg, "content", build_assistant_content(&resp));
+            cJSON_AddItemToObject(asst_msg, "content", cJSON_Duplicate(asst_content, 1));
             cJSON_AddItemToArray(messages, asst_msg);
+            
+            /* Save assistant tool use turn to session */
+            session_append_json(msg.chat_id, "assistant", asst_content);
+            cJSON_Delete(asst_content);
 
             /* Execute tools and append results */
             cJSON *tool_results = build_tool_results(&resp, &msg, tool_output, TOOL_OUTPUT_SIZE);
             cJSON *result_msg = cJSON_CreateObject();
             cJSON_AddStringToObject(result_msg, "role", "user");
-            cJSON_AddItemToObject(result_msg, "content", tool_results);
+            cJSON_AddItemToObject(result_msg, "content", cJSON_Duplicate(tool_results, 1));
             cJSON_AddItemToArray(messages, result_msg);
+            
+            /* Save tool results turn to session */
+            session_append_json(msg.chat_id, "user", tool_results);
+            cJSON_Delete(tool_results);
 
             llm_response_free(&resp);
             iteration++;
@@ -274,13 +300,11 @@ static void agent_loop_task(void *arg)
 
         /* 5. Send response */
         if (final_text && final_text[0]) {
-            /* Save to session (only user text + final assistant text) */
-            esp_err_t save_user = session_append(msg.chat_id, "user", msg.content);
+            /* Save only final assistant text (user input and tools already saved) */
             esp_err_t save_asst = session_append(msg.chat_id, "assistant", final_text);
-            if (save_user != ESP_OK || save_asst != ESP_OK) {
-                ESP_LOGW(TAG, "Session save failed for chat %s (user=%s, assistant=%s)",
+            if (save_asst != ESP_OK) {
+                ESP_LOGW(TAG, "Session save failed for chat %s (assistant=%s)",
                          msg.chat_id,
-                         esp_err_to_name(save_user),
                          esp_err_to_name(save_asst));
             } else {
                 ESP_LOGI(TAG, "Session saved for chat %s", msg.chat_id);

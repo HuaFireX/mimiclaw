@@ -5,6 +5,10 @@
 #include "tools/tool_files.h"
 #include "tools/tool_cron.h"
 
+/* USER include BEGIN*/
+#include "tools/tool_rgb.h"
+
+/* USER include END*/
 #include <string.h>
 #include "esp_log.h"
 #include "cJSON.h"
@@ -175,6 +179,16 @@ esp_err_t tool_registry_init(void)
         .execute = tool_cron_remove_execute,
     };
     register_tool(&cr);
+
+    /* USER CODE: Register RGB tool BEGIN*/
+    mimi_tool_t rgb = {
+        .name = "rgb_set",
+        .description = "Control RGB LED on GPIO48. Set r, g, b values 0-255.",
+        .input_schema_json = "{\"type\":\"object\",\"properties\":{\"r\":{\"type\":\"integer\"},\"g\":{\"type\":\"integer\"},\"b\":{\"type\":\"integer\"}}}",
+        .execute = tool_rgb_execute,
+    };
+    register_tool(&rgb);
+    /* USER CODE: Register RGB tool END*/
 
     build_tools_json();
 

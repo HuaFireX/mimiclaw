@@ -112,8 +112,8 @@ void app_main(void)
 
     /* Input */
     button_Init();
-    imu_manager_init();
-    imu_manager_set_shake_callback(NULL);
+    // imu_manager_init();
+    // imu_manager_set_shake_callback(NULL);
 
     /* Phase 1: Core infrastructure */
     ESP_ERROR_CHECK(init_nvs());
@@ -169,4 +169,7 @@ void app_main(void)
     }
 
     ESP_LOGI(TAG, "MimiClaw ready. Type 'help' for CLI commands.");
+    while (1) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }   
 }

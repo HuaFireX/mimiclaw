@@ -2,6 +2,7 @@
 
 #include "esp_err.h"
 #include <stddef.h>
+#include "cJSON.h"
 
 /**
  * Initialize session manager.
@@ -15,6 +16,11 @@ esp_err_t session_mgr_init(void);
  * @param content   Message text
  */
 esp_err_t session_append(const char *chat_id, const char *role, const char *content);
+
+/**
+ * Append a message with complex content (e.g. tool calls) to session.
+ */
+esp_err_t session_append_json(const char *chat_id, const char *role, const cJSON *content);
 
 /**
  * Load session history as a JSON array string suitable for LLM messages.
