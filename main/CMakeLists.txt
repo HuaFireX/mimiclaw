@@ -21,7 +21,7 @@ idf_component_register(
         "heartbeat/heartbeat.c"
         "tools/tool_registry.c"
         "tools/tool_rgb.c"
-        "tools/ws2812_driver.c"
+        "drivers/ws2812/ws2812_driver.c"
         "tools/tool_cron.c"
         "tools/tool_web_search.c"
         "tools/tool_get_time.c"
@@ -29,6 +29,7 @@ idf_component_register(
         "skills/skill_loader.c"
     INCLUDE_DIRS
         "."
+        "drivers/ws2812"
     REQUIRES
         nvs_flash esp_wifi esp_netif esp_http_client esp_http_server
         esp_https_ota esp_event json spiffs console vfs app_update esp-tls

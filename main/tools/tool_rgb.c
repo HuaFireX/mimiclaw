@@ -1,6 +1,6 @@
 #include "tool_rgb.h"
 #include "tools/tool_registry.h"
-#include "ws2812_driver.h"
+#include "drivers/ws2812/ws2812_driver.h"
 #include "esp_log.h"
 #include "cJSON.h"
 #include <stdio.h>
